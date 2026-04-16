@@ -1,0 +1,24 @@
+# Font
+font-family = JetBrains Mono SemiBold
+font-size = 16
+
+# Theme (ghostty has many built-in themes)
+theme = Gruvbox Dark Hard
+
+# Window
+window-padding-x = 10
+window-padding-y = 10
+window-decoration = true
+unfocused-split-opacity = 0.2
+
+# Make Option key work as Alt (important for tmux keybindings)
+macos-option-as-alt = true
+
+# Cursor
+cursor-style = block
+cursor-style-blink = false
+
+# Scrollback
+scrollback-limit = 10000
+
+keybind = shift+enter=text:\x1b\r
