@@ -11,6 +11,11 @@ focus_pane_down = "alt+down"
 reload_config = "prefix+r"
 resize_mode = "prefix+shift+r"
 
+# Toggle back to the last focused pane, including agents in another tab/workspace.
+cycle_pane_next = ""
+last_pane = "prefix+tab"
+previous_tab = "prefix+p"
+
 [terminal]
 new_cwd = "follow"
 
