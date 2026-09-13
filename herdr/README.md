@@ -21,6 +21,10 @@ In Pi, load it with:
 
 Requirements: Python 3 and the `herdr` CLI on `PATH`.
 
+Model routing: the orchestrator model is user-selected (currently GPT-5.6 Sol);
+implementation tasks default to OpenCode Go with task-based model picks and
+adaptive switching rules — see the Model routing section in the skill.
+
 ## Self-test
 
 ```sh

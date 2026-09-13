@@ -10,7 +10,8 @@ description: Orchestrate coding work through visible Herdr agents in isolated Gi
 - Main agent owns planning, delegation, monitoring, diff review, verification, and handoff. Workers implement.
 - Read global and project AGENTS.md and relevant project docs first. Project-specific checks and approval rules apply.
 - Use `start_herdr_worktree_agent`; never substitute hidden subagents for worktree workers.
-- Default workers to `openai-codex/gpt-5.5`, thinking `off`, unless the user asks otherwise.
+- Default implementation workers to `opencode-go` (OpenCode Go).
+- See the Model routing section below; explicit user model choice always wins.
 - Keep implementation agents separate from user-facing test agents. A test agent editing a diagram is not a repository implementation worker. Do not repurpose or interrupt user test panes.
 - Observations during UX testing are findings, not automatic authorization for unrelated code changes.
 
@@ -42,7 +43,36 @@ Generate .hunk/agent-context.json from the final diff before handoff.
 
 If the start tool is unavailable, report the missing capability instead of silently switching to hidden workers. Consult `herdr ... --help` for unfamiliar CLI operations.
 
-## 3. Monitor and steer
+## 3. Model routing
+
+The orchestrator model is user-selected and currently **GPT-5.6 Sol**. Provisional implementation-worker defaults:
+
+| Task | Model | Thinking |
+|---|---|---|
+| Docs, config, mechanical edits | `glm-5.3-flash` | low/off |
+| Normal coding; initial hard-algorithm work | `kimi-k2.7-code` | medium |
+| Large-context / repository investigation | `deepseek-v4-flash` or `qwen3.7-plus` | medium |
+| Images | `deepseek-v4-flash-vision-exp` or `glm-5.3-flash` | — |
+| Challengers/escalations only | `glm-5.3`, `qwen3.8-max`, `deepseek-v4-pro` | — |
+
+- `muse-spark-1.3-contributor` is allowed despite training caveats; the user accepts that for intended open-source work.
+- Premium models are challengers/escalations, never first defaults.
+- Availability drifts: query `pi --list-models opencode-go` (or the relevant model id) instead of assuming catalog permanence.
+- Strict secret handling applies to every model; routing never relaxes it.
+
+### Adaptive switching
+
+Do not switch on one ordinary mistake; redirect once with concrete evidence first. Switch when a worker shows:
+
+- repeated compile/test failures after correction
+- scope drift, weakened tests, or unsupported claims
+- tool loops or inability to follow a correction
+- context-limit, provider, or rate-limit failures
+- clearly poor diff quality
+
+To switch: preserve the worktree, stop the old agent safely, start a new visible agent in the same pane with a concise handoff to inspect the current diff, then rearm the wake listener. Record the model and reasoning level in the status ledger. Explicit user model choice wins over all routing rules.
+
+## 4. Monitor and steer
 
 Use the returned agent name or pane ID:
 
@@ -88,7 +118,7 @@ PY
 - Stop and inspect on a user cancellation. Revert only the canceled task's changes; preserve all prior work. Never broadly reset a dirty worktree.
 - Keep a compact status ledger in the conversation: owner, branch/path/pane, stage, blockers, checks, next action.
 
-## 4. Review and verify
+## 5. Review and verify
 
 - Inspect tracked changes and untracked files. Check the complete branch diff against its base, not just the last edit.
 - Review root-cause correctness, affected callers, error handling, and scope. A passing test suite alone does not establish visual correctness.
@@ -105,7 +135,7 @@ Use `oldRange` for deleted lines. Do not commit this sidecar.
 - Leave implementation uncommitted for Neovim review. Open a visible review pane when available/requested, without replacing the user's test setup.
 - Report what changed, checks actually run, remaining limitations, and the review path. Wait for approval.
 
-## 5. Approved delivery
+## 6. Approved delivery
 
 - Confirm approval covers committing/pushing/merging; creating a worker is not approval to publish changes.
 - Stage only intended files and commit on the feature branch. Exclude review sidecars and local artifacts.
@@ -114,7 +144,7 @@ Use `oldRange` for deleted lines. Do not commit this sidecar.
 - Merge only after required checks pass and the user has authorized merge.
 - Tags, package publication, and GitHub releases require separate approval.
 
-## 6. Clean up after merge
+## 7. Clean up after merge
 
 - Confirm the PR merged and record its merge commit.
 - Ensure the worker has stopped writing and there is no unmerged or user-owned work in its worktree.
