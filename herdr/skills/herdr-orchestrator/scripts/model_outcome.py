@@ -113,7 +113,12 @@ def pick_fallback(model, category):
 
 
 def decide(model, category, outcome, reason):
-    """switch (now) > redirect-once (then switch on second red) > continue."""
+    """switch (now) > redirect-once (then switch on second red) > continue.
+
+    Fields: model = current; recommended_model = model to use next;
+    fallback = escalation-only model used if redirect_once fails again
+    (never assigned preemptively).
+    """
     history = [r for r in load() if r.get("model", "").lower() == model.lower()
                and r.get("category") == category]
     verdict = {"model": model, "category": category, "outcome": outcome,
@@ -121,20 +126,25 @@ def decide(model, category, outcome, reason):
     if outcome == "red" and reason in IMMEDIATE_CODES:
         verdict.update(action="switch", immediate=True,
                        fallback=pick_fallback(model, category),
+                       recommended_model=pick_fallback(model, category),
                        rule="failure_class_requires_immediate_switch")
     elif outcome == "red" and sum(
             h["outcome"] == "red" for h in history[-3:]) >= 2:
         verdict.update(action="switch", immediate=True,
                        fallback=pick_fallback(model, category),
+                       recommended_model=pick_fallback(model, category),
                        rule="2_red_in_last_3_stages")
     elif outcome == "red":
         verdict.update(action="redirect_once",
                        fallback=pick_fallback(model, category),
+                       recommended_model=model,
                        rule="first_red_gets_one_evidence_based_redirect")
     elif outcome == "yellow":
-        verdict.update(action="continue", rule="one_successful_correction")
+        verdict.update(action="continue", recommended_model=model,
+                       rule="one_successful_correction")
     else:
-        verdict.update(action="continue", rule="no_material_correction")
+        verdict.update(action="continue", recommended_model=model,
+                       rule="no_material_correction")
     return verdict
 
 
@@ -162,8 +172,6 @@ def main(argv=None):
     d.add_argument("--category", required=True)
     d.add_argument("--outcome", required=True, choices=OUTCOMES)
     d.add_argument("--reason", default="clean")
-    d.add_argument("--next-assignment", action="store_true",
-                   help="emit fallback for the next worker assignment")
     args = p.parse_args(argv)
     path = args.path or store_path()
 
@@ -193,14 +201,8 @@ def main(argv=None):
         print(json.dumps({"model": args.model, "category": args.category,
                           "stages": len(rows), "outcomes": counts}))
     elif args.cmd == "decision":
-        v = decide(args.model, args.category, args.outcome, args.reason)
-        if args.next_assignment:
-            cat = args.category if args.category in FALLBACKS \
-                else DEFAULT_CATEGORY
-            v["next_model"] = (v["fallback"] if v["action"] != "continue"
-                               else FALLBACKS.get(cat, FALLBACKS[
-                                   DEFAULT_CATEGORY])[0])
-        print(json.dumps(v, sort_keys=True))
+        print(json.dumps(decide(args.model, args.category, args.outcome,
+                                args.reason), sort_keys=True))
     else:
         p.print_help()
     return 0
@@ -229,11 +231,12 @@ def self_test():
     # immediate switch on failure class
     v = decide("m1", "coding", "red", "rate_limit")
     assert v["action"] == "switch" and v["immediate"]
-    assert v["fallback"] != "m1", v
+    assert v["recommended_model"] == v["fallback"] != "m1", v
 
-    # first red -> one redirect; second red in last 3 -> switch
+    # first red -> one redirect on the SAME model; fallback is escalation-only
     v = decide("m2", "coding", "red", "repeated_fail")
-    assert v["action"] == "redirect_once", v
+    assert v["action"] == "redirect_once" and v["recommended_model"] == "m2", v
+    assert v["fallback"] != "m2", v
     append({"ts": "z", "model": "m2", "thinking": "off",
             "category": "coding", "outcome": "red",
             "redirects": 0, "reason": "repeated_fail"}, path)
@@ -241,7 +244,14 @@ def self_test():
             "category": "coding", "outcome": "red",
             "redirects": 1, "reason": "repeated_fail"}, path)
     v = decide("m2", "coding", "red", "repeated_fail")
-    assert v["action"] == "switch" and v["immediate"] and v["fallback"], v
+    assert v["action"] == "switch" and v["immediate"]
+    assert v["recommended_model"] == v["fallback"] != "m2", v
+
+    # continue keeps the current model even if it is not the category default
+    v = decide("qwen3.7-plus", "investigate", "green", "clean")
+    assert v["action"] == "continue"
+    assert v["recommended_model"] == "qwen3.7-plus", v
+    assert "fallback" not in v
 
     # yellow/continue
     assert decide("m3", "docs", "yellow", "corrected_once")["action"] == "continue"
@@ -249,7 +259,6 @@ def self_test():
 
     # falls back to default category for unknown categories
     assert decide("m1", "unknown-cat", "red", "rate_limit")["fallback"]
-
     # parallel append interleaving
     import subprocess
     procs = [subprocess.Popen(
