@@ -29,9 +29,11 @@ adaptive switching rules — see the Model routing section in the skill.
 
 ```sh
 python3 herdr/skills/herdr-orchestrator/scripts/worker_wakeup.py --self-test
+python3 herdr/skills/herdr-orchestrator/scripts/model_outcome.py --self-test
 PYTHONDONTWRITEBYTECODE=1 python3 - <<'PY'
 from pathlib import Path
 compile(Path('herdr/skills/herdr-orchestrator/scripts/worker_wakeup.py').read_text(), 'worker_wakeup.py', 'exec')
+compile(Path('herdr/skills/herdr-orchestrator/scripts/model_outcome.py').read_text(), 'model_outcome.py', 'exec')
 print('syntax ok')
 PY
 ```

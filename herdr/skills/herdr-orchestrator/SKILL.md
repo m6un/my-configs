@@ -72,6 +72,32 @@ Do not switch on one ordinary mistake; redirect once with concrete evidence firs
 
 To switch: preserve the worktree, stop the old agent safely, start a new visible agent in the same pane with a concise handoff to inspect the current diff, then rearm the wake listener. Record the model and reasoning level in the status ledger. Explicit user model choice wins over all routing rules.
 
+### Automatic outcome tracking
+
+After reviewing each worker stage, run [scripts/model_outcome.py](scripts/model_outcome.py) yourself — do not ask the worker and do not ask the user. It stores outcomes by default at `~/.pi/agent/state/herdr-model-outcomes.jsonl` (outside git) and records only UTC timestamp, model, thinking level, task category, green/yellow/red, redirect count, and a short reason code. Never record prompts, source, paths, secrets, or freeform text.
+
+```bash
+# record (after diff review): green = no material correction,
+# yellow = one successful correction, red = repeated material failure / unusable diff
+python3 .../scripts/model_outcome.py record --model <model> --thinking <lvl> \
+  --category <coding|docs|mechanical|algorithm|investigate|images> \
+  --outcome <green|yellow|red> [--redirects <n>] --reason <code>
+
+# before the next assignment, ask for a verdict and the fallback model
+python3 .../scripts/model_outcome.py decision --model <model> \
+  --category <cat> --outcome <red> --reason <code> --next-assignment
+
+python3 .../scripts/model_outcome.py --self-test   # temp-storage self-check
+```
+
+Verdict rules:
+
+- `switch` immediately on provider/rate/context-limit/tool-protocol failure (`--reason provider_fail|rate_limit|context_limit|tool_protocol`).
+- otherwise a red outcome gets exactly one evidence-based redirect (`redirect_once`); switch when the same model has 2 reds among its last 3 stages in that category.
+- `continue` for green/yellow.
+
+On a `switch` verdict use `next_model` as the prescribed category fallback, preserve the worktree, stop the old agent safely, start a new visible agent in the same pane with a concise handoff to inspect the current diff, and rearm the wake listener. Switching models never authorizes commit/merge. Ask the user only when all fallbacks fail or an explicit user model choice conflicts. The script is no daemon; each call exits.
+
 ## 4. Monitor and steer
 
 Use the returned agent name or pane ID:
