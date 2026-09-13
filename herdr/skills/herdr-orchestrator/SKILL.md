@@ -51,7 +51,7 @@ The orchestrator model is user-selected and currently **GPT-5.6 Sol**. Provision
 |---|---|---|
 | Docs, config, mechanical edits | `glm-5.3-flash` | low/off |
 | Normal coding; initial algorithm execution | `kimi-k2.7-code` | low/off |
-| Large-context / repository investigation | `deepseek-v4-flash` or `qwen3.7-plus` | medium |
+| Large-context / repository investigation | `deepseek-v4-flash` or `qwen3.7-plus` | low/off |
 | Images | `deepseek-v4-flash-vision-exp` or `glm-5.3-flash` | — |
 | Challengers/escalations only | `glm-5.3`, `qwen3.8-max`, `deepseek-v4-pro` | — |
 
@@ -87,7 +87,8 @@ python3 .../scripts/model_outcome.py record --model <model> --thinking <lvl> \
 # before the next assignment, ask for a verdict: current = model,
 # recommended_model = model to use next; fallback is escalation-only
 python3 .../scripts/model_outcome.py decision --model <model> \
-  --category <cat> --outcome <red> --reason <code>
+  --category <cat> --outcome <red> --reason <code> \
+  --redirects <n>   # redirects already made in this stage
 
 python3 .../scripts/model_outcome.py --self-test   # temp-storage self-check
 ```
@@ -95,7 +96,7 @@ python3 .../scripts/model_outcome.py --self-test   # temp-storage self-check
 Verdict rules:
 
 - `switch` immediately on provider/rate/context-limit/tool-protocol failure (`--reason provider_fail|rate_limit|context_limit|tool_protocol`).
-- otherwise a red outcome gets exactly one redirect on the **same** model (`redirect_once`, `recommended_model` = current); switch only if the redirect also fails or the same model has 2 reds among its last 3 stages in that category.
+- otherwise a red outcome gets exactly one redirect on the **same** model (`redirect_once`, `recommended_model` = current) when it is the first red of its stage (`--redirects 0`); a red after an already-made redirect in the same stage (`--redirects >= 1`, rule `correction_already_failed`) or 2 reds among the model's last 3 stages in that category switches immediately.
 - `continue` (green/yellow) always keeps the current model as `recommended_model`, even when it is not the category default; `fallback` is escalation-only and never assigned preemptively.
 
 On a `switch` verdict use `recommended_model` as the prescribed category fallback (same policy for immediate-switch); on `redirect_once`/`continue` keep the current model (`recommended_model` = current). In either switch path, preserve the worktree, stop the old agent safely, start a new visible agent in the same pane with a concise handoff to inspect the current diff, and rearm the wake listener. Switching models never authorizes commit/merge. Ask the user only when all fallbacks fail or an explicit user model choice conflicts. The script is no daemon; each call exits.

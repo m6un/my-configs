@@ -15,7 +15,8 @@ Subcommands:
   recent   [MODEL] [--limit N]    recent outcomes (optionally per model)
   summary  [MODEL] [CATEGORY]    aggregate counts
   decision --model M --category C --outcome O [--reason CODE]
-            verdict JSON: switch with fallback, or one redirect first.
+            [--redirects N] verdict JSON: switch with fallback, or one
+            redirect first.
   --self-test              run assertions on temp storage.
 
 Line-level corruption is tolerated (bad lines skipped, history never rewritten).
@@ -112,7 +113,7 @@ def pick_fallback(model, category):
     return candidates[0]
 
 
-def decide(model, category, outcome, reason):
+def decide(model, category, outcome, reason, redirects=0):
     """switch (now) > redirect-once (then switch on second red) > continue.
 
     Fields: model = current; recommended_model = model to use next;
@@ -122,7 +123,7 @@ def decide(model, category, outcome, reason):
     history = [r for r in load() if r.get("model", "").lower() == model.lower()
                and r.get("category") == category]
     verdict = {"model": model, "category": category, "outcome": outcome,
-               "reason": reason}
+               "reason": reason, "redirects": redirects}
     if outcome == "red" and reason in IMMEDIATE_CODES:
         verdict.update(action="switch", immediate=True,
                        fallback=pick_fallback(model, category),
@@ -134,6 +135,11 @@ def decide(model, category, outcome, reason):
                        fallback=pick_fallback(model, category),
                        recommended_model=pick_fallback(model, category),
                        rule="2_red_in_last_3_stages")
+    elif outcome == "red" and redirects >= 1:
+        verdict.update(action="switch", immediate=True,
+                       fallback=pick_fallback(model, category),
+                       recommended_model=pick_fallback(model, category),
+                       rule="correction_already_failed")
     elif outcome == "red":
         verdict.update(action="redirect_once",
                        fallback=pick_fallback(model, category),
@@ -172,6 +178,7 @@ def main(argv=None):
     d.add_argument("--category", required=True)
     d.add_argument("--outcome", required=True, choices=OUTCOMES)
     d.add_argument("--reason", default="clean")
+    d.add_argument("--redirects", type=int, default=0)
     args = p.parse_args(argv)
     path = args.path or store_path()
 
@@ -202,7 +209,7 @@ def main(argv=None):
                           "stages": len(rows), "outcomes": counts}))
     elif args.cmd == "decision":
         print(json.dumps(decide(args.model, args.category, args.outcome,
-                                args.reason), sort_keys=True))
+                                args.reason, args.redirects), sort_keys=True))
     else:
         p.print_help()
     return 0
@@ -234,8 +241,13 @@ def self_test():
     assert v["recommended_model"] == v["fallback"] != "m1", v
 
     # first red -> one redirect on the SAME model; fallback is escalation-only
-    v = decide("m2", "coding", "red", "repeated_fail")
+    v = decide("m2", "coding", "red", "repeated_fail", redirects=0)
     assert v["action"] == "redirect_once" and v["recommended_model"] == "m2", v
+    assert v["fallback"] != "m2", v
+    # a red that already had a redirect in the same stage switches immediately
+    v = decide("m2b", "coding", "red", "repeated_fail", redirects=1)
+    assert v["action"] == "switch" and v["rule"] == "correction_already_failed", v
+    assert v["recommended_model"] == v["fallback"] != "m2b", v
     assert v["fallback"] != "m2", v
     append({"ts": "z", "model": "m2", "thinking": "off",
             "category": "coding", "outcome": "red",
