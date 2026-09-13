@@ -50,13 +50,14 @@ The orchestrator model is user-selected and currently **GPT-5.6 Sol**. Provision
 | Task | Model | Thinking |
 |---|---|---|
 | Docs, config, mechanical edits | `glm-5.3-flash` | low/off |
-| Normal coding; initial hard-algorithm work | `kimi-k2.7-code` | medium |
+| Normal coding; initial algorithm execution | `kimi-k2.7-code` | low/off |
 | Large-context / repository investigation | `deepseek-v4-flash` or `qwen3.7-plus` | medium |
 | Images | `deepseek-v4-flash-vision-exp` or `glm-5.3-flash` | — |
 | Challengers/escalations only | `glm-5.3`, `qwen3.8-max`, `deepseek-v4-pro` | — |
 
 - `muse-spark-1.3-contributor` is allowed despite training caveats; the user accepts that for intended open-source work.
 - Premium models are challengers/escalations, never first defaults.
+- Medium thinking is not a category default: the orchestrator may use it temporarily only after identifying a specific algorithmic blocker that genuinely requires exploration, with a bounded checkpoint (one stage, then re-evaluate against the low/off default).
 - Availability drifts: query `pi --list-models opencode-go` (or the relevant model id) instead of assuming catalog permanence.
 - Strict secret handling applies to every model; routing never relaxes it.
 
@@ -139,6 +140,7 @@ PY
 - The bridge delivers through the pane's agent input, not a private Pi RPC queue. Avoid typing manually into the orchestrator input while expecting automated delivery.
 - Validate the helper with `python3 /absolute/path/to/scripts/worker_wakeup.py --self-test`. Inspect installed API metadata with `herdr api schema --json` if the protocol changes.
 
+- Execution discipline: architecture, trade-off decisions, and planning belong to the orchestrator. Workers edit, test, and report. If a worker narrates or replans without making checkpoint progress, redirect once to a short concrete edit/check checkpoint; if it still makes no progress, score the stage and switch models under the outcome policy.
 - Inspect progress after startup, at checkpoints, and after failed checks. A timeout is a reason to read progress, not evidence of failure.
 - Do not accept idle/done status as proof of completion: read the report and inspect the actual diff.
 - Redirect scope drift, speculative abstractions, symptom patches, weakened tests, or accidental shared-file changes promptly.
