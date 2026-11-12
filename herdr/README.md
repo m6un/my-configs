@@ -19,21 +19,17 @@ In Pi, load it with:
 /skill:herdr-orchestrator
 ```
 
-Requirements: Python 3 and the `herdr` CLI on `PATH`.
+Requirements: Python 3, `herdr`, and Antigravity CLI (`agy`) on `PATH`.
 
-Model routing: the orchestrator model is user-selected (currently GPT-5.6 Sol);
-implementation tasks default to OpenCode Go with task-based model picks and
-adaptive switching rules — see the Model routing section in the skill.
+Implementation workers run as visible `agy` sessions in isolated Herdr worktrees. The skill uses Antigravity's configured default model unless the user explicitly requests another model or effort level.
 
 ## Self-test
 
 ```sh
 python3 herdr/skills/herdr-orchestrator/scripts/worker_wakeup.py --self-test
-python3 herdr/skills/herdr-orchestrator/scripts/model_outcome.py --self-test
 PYTHONDONTWRITEBYTECODE=1 python3 - <<'PY'
 from pathlib import Path
 compile(Path('herdr/skills/herdr-orchestrator/scripts/worker_wakeup.py').read_text(), 'worker_wakeup.py', 'exec')
-compile(Path('herdr/skills/herdr-orchestrator/scripts/model_outcome.py').read_text(), 'model_outcome.py', 'exec')
 print('syntax ok')
 PY
 ```
