@@ -9,9 +9,8 @@ description: Orchestrate coding work through visible Herdr agents in isolated Gi
 
 - Main agent owns planning, delegation, monitoring, diff review, verification, and handoff. Workers implement.
 - Read global and project AGENTS.md and relevant project docs first. Project-specific checks and approval rules apply.
-- Use `start_herdr_worktree_agent`; never substitute hidden subagents for worktree workers.
-- Default implementation workers to `opencode-go` (OpenCode Go).
-- See the Model routing section below; explicit user model choice always wins.
+- Use visible Antigravity CLI workers (`agy`) in Herdr panes; never substitute hidden subagents or Pi/OpenCode workers.
+- Use Antigravity's configured default model unless the user explicitly requests a model or effort level.
 - Keep implementation agents separate from user-facing test agents. A test agent editing a diagram is not a repository implementation worker. Do not repurpose or interrupt user test panes.
 - Observations during UX testing are findings, not automatic authorization for unrelated code changes.
 
@@ -25,7 +24,18 @@ description: Orchestrate coding work through visible Herdr agents in isolated Gi
 
 ## 2. Start a visible worker
 
-Call `start_herdr_worktree_agent` with a unique `agent/<task>` branch, agent name, model, thinking level, and task. Record the returned branch, worktree path, tab, and pane; never assume paths or reuse old pane IDs.
+Create a unique `agent/<task>` branch in an isolated Git worktree, create a visible Herdr tab rooted there, and start Antigravity CLI with `herdr agent start --kind agy`. Do not use `start_herdr_worktree_agent`; it starts a Pi worker rather than the required Antigravity worker. Record the branch, worktree path, tab, and pane returned by the commands; never assume paths or reuse old pane IDs.
+
+Typical sequence:
+
+```bash
+git worktree add -b agent/<task> <absolute-worktree-path> <base-branch>
+herdr tab create --cwd <absolute-worktree-path> --label <task> --no-focus
+herdr agent start <worker-name> --kind agy --pane <pane-id> -- --mode accept-edits --effort low
+herdr agent prompt <worker-name> "<task prompt>"
+```
+
+Use Antigravity's configured default model. Pass `--model` or a higher `--effort` only when the user explicitly asks or a concrete blocker justifies it.
 
 Worker task template:
 
@@ -41,65 +51,17 @@ Report changed files, checks, failures, known limitations, and blockers.
 Generate .hunk/agent-context.json from the final diff before handoff.
 ```
 
-If the start tool is unavailable, report the missing capability instead of silently switching to hidden workers. Consult `herdr ... --help` for unfamiliar CLI operations.
+If `agy` or Herdr cannot start, report the blocker instead of silently switching to Pi, OpenCode, or a hidden worker. Consult `agy --help` and `herdr ... --help` for unfamiliar operations.
 
-## 3. Model routing
+## 3. Antigravity worker policy
 
-The orchestrator model is user-selected and currently **GPT-5.6 Sol**. Provisional implementation-worker defaults:
-
-| Task | Model | Thinking |
-|---|---|---|
-| Docs, config, mechanical edits | `glm-5.3-flash` | low/off |
-| Normal coding; initial algorithm execution | `kimi-k2.7-code` | low/off |
-| Large-context / repository investigation | `deepseek-v4-flash` or `qwen3.7-plus` | low/off |
-| Images | `deepseek-v4-flash-vision-exp` or `glm-5.3-flash` | — |
-| Challengers/escalations only | `glm-5.3`, `qwen3.8-max`, `deepseek-v4-pro` | — |
-
-- `muse-spark-1.3-contributor` is allowed despite training caveats; the user accepts that for intended open-source work.
-- Premium models are challengers/escalations, never first defaults.
-- Medium thinking is not a category default: the orchestrator may use it temporarily only after identifying a specific algorithmic blocker that genuinely requires exploration, with a bounded checkpoint (one stage, then re-evaluate against the low/off default).
-- Availability drifts: query `pi --list-models opencode-go` (or the relevant model id) instead of assuming catalog permanence.
-- Strict secret handling applies to every model; routing never relaxes it.
-
-### Adaptive switching
-
-Do not switch on one ordinary mistake; redirect once with concrete evidence first. Switch when a worker shows:
-
-- repeated compile/test failures after correction
-- scope drift, weakened tests, or unsupported claims
-- tool loops or inability to follow a correction
-- context-limit, provider, or rate-limit failures
-- clearly poor diff quality
-
-To switch: preserve the worktree, stop the old agent safely, start a new visible agent in the same pane with a concise handoff to inspect the current diff, then rearm the wake listener. Record the model and reasoning level in the status ledger. Explicit user model choice wins over all routing rules.
-
-### Automatic outcome tracking
-
-After reviewing each worker stage, run [scripts/model_outcome.py](scripts/model_outcome.py) yourself — do not ask the worker and do not ask the user. It stores outcomes by default at `~/.pi/agent/state/herdr-model-outcomes.jsonl` (outside git) and records only UTC timestamp, model, thinking level, task category, green/yellow/red, redirect count, and a short reason code. Never record prompts, source, paths, secrets, or freeform text.
-
-```bash
-# record (after diff review): green = no material correction,
-# yellow = one successful correction, red = repeated material failure / unusable diff
-python3 .../scripts/model_outcome.py record --model <model> --thinking <lvl> \
-  --category <coding|docs|mechanical|algorithm|investigate|images> \
-  --outcome <green|yellow|red> [--redirects <n>] --reason <code>
-
-# before the next assignment, ask for a verdict: current = model,
-# recommended_model = model to use next; fallback is escalation-only
-python3 .../scripts/model_outcome.py decision --model <model> \
-  --category <cat> --outcome <red> --reason <code> \
-  --redirects <n>   # redirects already made in this stage
-
-python3 .../scripts/model_outcome.py --self-test   # temp-storage self-check
-```
-
-Verdict rules:
-
-- `switch` immediately on provider/rate/context-limit/tool-protocol failure (`--reason provider_fail|rate_limit|context_limit|tool_protocol`).
-- otherwise a red outcome gets exactly one redirect on the **same** model (`redirect_once`, `recommended_model` = current) when it is the first red of its stage (`--redirects 0`); a red after an already-made redirect in the same stage (`--redirects >= 1`, rule `correction_already_failed`) or 2 reds among the model's last 3 stages in that category switches immediately.
-- `continue` (green/yellow) always keeps the current model as `recommended_model`, even when it is not the category default; `fallback` is escalation-only and never assigned preemptively.
-
-On a `switch` verdict use `recommended_model` as the prescribed category fallback (same policy for immediate-switch); on `redirect_once`/`continue` keep the current model (`recommended_model` = current). In either switch path, preserve the worktree, stop the old agent safely, start a new visible agent in the same pane with a concise handoff to inspect the current diff, and rearm the wake listener. Switching models never authorizes commit/merge. Ask the user only when all fallbacks fail or an explicit user model choice conflicts. The script is no daemon; each call exits.
+- Antigravity CLI (`agy`) is the only default implementation-worker runtime.
+- Start with `--mode accept-edits --effort low` and Antigravity's configured default model.
+- Explicit user choices for model, agent, mode, or effort always win.
+- Increase effort only after identifying a specific blocker and only for a bounded stage.
+- On an ordinary mistake, redirect once with concrete evidence.
+- On repeated bad edits, provider failure, context failure, or tool failure, preserve the worktree and restart a fresh visible `agy` session with a concise handoff. Do not fall back to Pi or OpenCode without explicit user approval.
+- Strict secret handling applies to every worker and model.
 
 ## 4. Monitor and steer
 
@@ -141,7 +103,7 @@ PY
 - The bridge delivers through the pane's agent input, not a private Pi RPC queue. Avoid typing manually into the orchestrator input while expecting automated delivery.
 - Validate the helper with `python3 /absolute/path/to/scripts/worker_wakeup.py --self-test`. Inspect installed API metadata with `herdr api schema --json` if the protocol changes.
 
-- Execution discipline: architecture, trade-off decisions, and planning belong to the orchestrator. Workers edit, test, and report. If a worker narrates or replans without making checkpoint progress, redirect once to a short concrete edit/check checkpoint; if it still makes no progress, score the stage and switch models under the outcome policy.
+- Execution discipline: architecture, trade-off decisions, and planning belong to the orchestrator. Workers edit, test, and report. If a worker narrates or replans without making checkpoint progress, redirect once to a short concrete edit/check checkpoint; if it still makes no progress, preserve the worktree and restart a fresh visible `agy` session with a concise handoff.
 - Inspect progress after startup, at checkpoints, and after failed checks. A timeout is a reason to read progress, not evidence of failure.
 - Do not accept idle/done status as proof of completion: read the report and inspect the actual diff.
 - Redirect scope drift, speculative abstractions, symptom patches, weakened tests, or accidental shared-file changes promptly.
