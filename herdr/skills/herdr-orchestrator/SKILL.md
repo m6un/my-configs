@@ -31,7 +31,7 @@ Typical sequence:
 ```bash
 git worktree add -b agent/<task> <absolute-worktree-path> <base-branch>
 herdr tab create --cwd <absolute-worktree-path> --label <task> --no-focus
-herdr agent start <worker-name> --kind agy --pane <pane-id> -- --mode accept-edits --effort low
+herdr agent start <worker-name> --kind agy --pane <pane-id> -- --mode accept-edits --dangerously-skip-permissions
 herdr agent prompt <worker-name> "<task prompt>"
 ```
 
@@ -56,22 +56,43 @@ If `agy` or Herdr cannot start, report the blocker instead of silently switching
 ## 3. Antigravity worker policy
 
 - Antigravity CLI (`agy`) is the only default implementation-worker runtime.
-- Start with `--mode accept-edits --effort low` and Antigravity's configured default model.
+- Start with `--mode accept-edits --dangerously-skip-permissions` and Antigravity's configured default model so isolated worktree workers do not block on every shell command. Do not pass `--effort low`; the current default model does not support that flag.
 - Explicit user choices for model, agent, mode, or effort always win.
 - Increase effort only after identifying a specific blocker and only for a bounded stage.
 - On an ordinary mistake, redirect once with concrete evidence.
 - On repeated bad edits, provider failure, context failure, or tool failure, preserve the worktree and restart a fresh visible `agy` session with a concise handoff. Do not fall back to Pi or OpenCode without explicit user approval.
 - Strict secret handling applies to every worker and model.
 
+## 3a. Diaview worker tabs — mbx Cargo shim (macOS)
+
+Diaview uses [mbx](https://github.com/jdx/mr-boxington) to provide a per-worktree shared Rust build cache through a Cargo shim. For a **Diaview** task on this macOS setup:
+
+1. **Verify in the orchestrator** before creating the tab:
+   ```bash
+   MBX_BIN="$HOME/Library/Application Support/mbx/bin"
+   test -x "${MBX_BIN}/cargo" && echo "shim ok" || echo "MISSING: install mbx"
+   mbx setup --status
+   ```
+   If either check fails, stop and report the blocker; do not start the worker.
+
+2. **Create the tab** with the shim prepended:
+   ```bash
+   herdr tab create --cwd <absolute-worktree-path> --label <task> --no-focus \
+     --env "PATH=${MBX_BIN}:${PATH}"
+   ```
+
+Workers run ordinary `cargo` commands unchanged; the shim routes them through the shared cache. Do not set a shared `CARGO_TARGET_DIR` (mbx manages per-worktree targets). Do not combine mbx with sccache. Non-Diaview workers: omit this section and use the generic sequence from §2.
+
 ## 4. Monitor and steer
 
-Use the returned agent name or pane ID:
+Use the returned agent name or pane ID for reads, corrections, and next-stage prompts:
 
 ```bash
 herdr agent read <agent> --source recent-unwrapped --lines 120
-herdr agent wait <agent> --timeout 120000
 herdr agent prompt <agent> "<narrow correction or next stage>"
 ```
+
+`herdr agent prompt` is asynchronous by default; do **not** use `--wait` or repeated bounded `herdr agent wait` calls as the normal monitoring mechanism. The standard pattern is: prompt asynchronously → confirm the worker reached `working` state via `agent get`/`agent read` → arm `worker_wakeup.py` → receive the lifecycle notification when done. Use `agent wait` only for startup diagnostics (confirming a worker reached `working` before arming) or when the listener has exited and you need a bounded fallback poll.
 
 ### Automatic wake-ups (default for delegated stages)
 
