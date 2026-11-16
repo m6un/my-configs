@@ -92,13 +92,15 @@ herdr agent read <agent> --source recent-unwrapped --lines 120
 herdr agent prompt <agent> "<narrow correction or next stage>"
 ```
 
-`herdr agent prompt` is asynchronous by default; do **not** use `--wait` or repeated bounded `herdr agent wait` calls as the normal monitoring mechanism. The standard pattern is: prompt asynchronously → confirm the worker reached `working` state via `agent get`/`agent read` → arm `worker_wakeup.py` → receive the lifecycle notification when done. Use `agent wait` only for startup diagnostics (confirming a worker reached `working` before arming) or when the listener has exited and you need a bounded fallback poll.
+`herdr agent prompt` is asynchronous by default. The standard pattern is: submit the prompt → immediately arm `worker_wakeup.py` → receive the lifecycle notification when the worker becomes idle, done, or blocked. The listener subscribes before taking its state snapshot, so it catches both fast completion and later transitions.
+
+Never use `sleep`, polling loops, or commands such as `sleep N; herdr ...` to monitor, synchronize with, or let a worker TUI "settle," including after start, prompt, or `send-keys`. Do not use `--wait` or repeated bounded `herdr agent wait` calls as normal monitoring. Use `agent get`/`agent read` once for diagnosis, and use a bounded `agent wait` only when listener startup or delivery has failed.
 
 ### Automatic wake-ups (default for delegated stages)
 
 Use [scripts/worker_wakeup.py](scripts/worker_wakeup.py), a Python-stdlib one-shot bridge between Herdr's native socket subscriptions and `herdr agent prompt`. It is custom glue, not a Herdr service. Resolve the script path relative to this skill directory.
 
-After submitting a stage, confirm the worker has started using `agent get`/`agent read` (or a bounded `agent wait --until working`). If it already finished, review it directly. Do not arm against a pre-submission idle worker. Start one listener per worker/stage:
+After submitting a stage, start one listener immediately for that worker/stage. Do not arm before the prompt is submitted, because a pre-submission idle snapshot is not a lifecycle result for the new stage. If the listener immediately reports `blocked`, inspect and resolve the blocker, then rearm after resuming the stage:
 
 ```bash
 python3 - /absolute/path/to/scripts/worker_wakeup.py <worker-pane-id> "$HERDR_PANE_ID" <<'PY'
